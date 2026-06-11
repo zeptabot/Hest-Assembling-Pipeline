@@ -20,7 +20,7 @@ CLEANED_META = sys.argv[1]
 output_base = input("Where do you wish to store the data? Please input directory: ").strip()
 DATA_DIR    = os.path.join(output_base, "data")
 print(f"Notice: data will be stored under newly created folder: {DATA_DIR}")
-print("This might take a long time. Converting…")
+print("This might take a long time. Converting...")
 os.makedirs(DATA_DIR, exist_ok=True)
 
 # ── Constants ──────────────────────────────────────────────────────────────
@@ -35,6 +35,18 @@ SPOT_PARAMS = {
     "Visium":   {"spot_diameter": 55.,  "inter_spot_dist": 100.},
     "VisiumHD": {"spot_diameter": 2.,   "inter_spot_dist": 2.},
 }
+
+# ── Metadata helpers ────────────────────────────────────────────────────────
+def _first_title(raw):
+    m = re.findall(r"Title \d+: (.+?)(?= Title \d+:|$)", raw)
+    return m[0].strip() if m else raw.strip()
+
+def _norm_species(s):
+    return {"human": "Homo sapiens", "mouse": "Mus musculus"}.get(s.strip().lower(), s.strip().capitalize())
+
+def _first_study_link(raw):
+    pmids = [p.strip() for p in re.split(r"[\n,;]+", raw) if p.strip().isdigit()]
+    return f"https://pubmed.ncbi.nlm.nih.gov/{pmids[0]}/" if pmids else None
 
 # ── Download ───────────────────────────────────────────────────────────────
 def download_slide(slide_name, technology):
@@ -62,13 +74,13 @@ def download_slide(slide_name, technology):
                 )
                 shutil.copy(src, dest_path)
         except Exception as e:
-            print(f"    ✗ {filename}: {e}")
+            print(f"    x {filename}: {e}")
             return None
 
     return {"stimage_dir": stimage_dir, "hest_dir": hest_dir, "technology": technology}
 
 # ── Convert ────────────────────────────────────────────────────────────────
-def convert_slide(slide_name, stimage_dir, hest_dir, technology):
+def convert_slide(slide_name, stimage_dir, hest_dir, technology, row):
     img_array = np.array(Image.open(os.path.join(stimage_dir, f"{slide_name}.png")).convert("RGB"))
     counts    = pd.read_csv(os.path.join(stimage_dir, f"{slide_name}_count.csv"), index_col=0)
     coord     = pd.read_csv(os.path.join(stimage_dir, f"{slide_name}_coord.csv"), index_col=0)
@@ -112,7 +124,11 @@ def convert_slide(slide_name, stimage_dir, hest_dir, technology):
     adata.var["mito"] = adata.var_names.str.startswith("MT-")
     sc.pp.calculate_qc_metrics(adata, qc_vars=["mito"], inplace=True)
 
+    gse_m = re.match(r"(GSE\d+)_(GSM\d+)", slide_name)
+    gene_num = row.get("gene_num", "").strip()
+
     meta = {
+        # computed
         "pixel_size_um_embedded":  None,
         "pixel_size_um_estimated": pixel_size,
         "fullres_height":          img_array.shape[0],
@@ -121,6 +137,28 @@ def convert_slide(slide_name, stimage_dir, hest_dir, technology):
         "spot_estimate_dist":      int(spot_estimate_dist),
         "spot_diameter":           SPOT_PARAMS[technology]["spot_diameter"],
         "inter_spot_dist":         SPOT_PARAMS[technology]["inter_spot_dist"],
+        # from STimage metadata
+        "id":                      slide_name,
+        "image_filename":          f"{slide_name}.tif",
+        "dataset_title":           _first_title(row["title"]),
+        "organ":                   row["tissue"].strip() or None,
+        "tissue":                  row["tissue"].strip() or None,
+        "species":                 _norm_species(row["species"]),
+        "st_technology":           row["tech"],
+        "disease_state":           "Cancer" if str(row["involve_cancer"]).strip().lower() in ("true", "1", "yes") else "Normal",
+        "nb_genes":                int(gene_num) if gene_num.isdigit() else None,
+        "study_link":              _first_study_link(row["pmid"]),
+        "download_page_link1":     f"https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc={gse_m.group(1)}" if gse_m else None,
+        "subseries":               gse_m.group(2) if gse_m else slide_name,
+        # not available in STimage
+        "patient":                 None,
+        "oncotree_code":           None,
+        "data_publication_date":   None,
+        "license":                 None,
+        "preservation_method":     None,
+        "magnification":           None,
+        "treatment_comment":       None,
+        "disease_comment":         None,
     }
 
     st = STHESTData(adata, img_array, pixel_size, meta)
@@ -156,11 +194,11 @@ for i, row in enumerate(slides):
         result = download_slide(slide_name, technology)
         if result is None:
             raise RuntimeError("download failed")
-        convert_slide(slide_name, result["stimage_dir"], result["hest_dir"], technology)
+        convert_slide(slide_name, result["stimage_dir"], result["hest_dir"], technology, row)
         done += 1
-        print(f"  ✓ done")
+        print(f"  done")
     except Exception as e:
-        print(f"  ✗ ERROR: {e}")
+        print(f"  ERROR: {e}")
         failed.append({"slide": slide_name, "technology": technology, "error": str(e)})
 
 print(f"\nFinished: {done} converted, {skipped} skipped (already done), {len(failed)} failed")

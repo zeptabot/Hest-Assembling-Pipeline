@@ -88,8 +88,7 @@ This might take a long time. Converting…
 
 # Clean.py
 
-- Set `DATA_DIR` (one variable to change per machine)
-- Output goes to `DATA_DIR/meta/`
+- Set directory where you want to store the cleaned metadata
 - **Inputs**
   - `STimage-1K4M/meta/meta_all_gene.csv` — 1,149 slides
   - `HEST/assets/HEST_v1_1_0.csv` — all HEST samples
