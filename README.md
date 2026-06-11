@@ -166,3 +166,35 @@ st.save(                 st.save_spatial_plot()           st.segment_tissue()
 │  transcripts/   cellvit_seg/   xenium_seg/   │
 └──────────────────────────────────────────────┘
 ```
+
+# Clean.py
+
+## Cell 1 — Config
+- Set `DATA_DIR` (one variable to change per machine)
+- Output goes to `DATA_DIR/meta/`
+
+## Cell 2 — Deduplicate STimage against HEST
+- **Inputs**
+  - `STimage-1K4M/meta/meta_all_gene.csv` — 1,149 slides
+  - `HEST/assets/HEST_v1_1_0.csv` — all HEST samples
+- **Build HEST lookup**
+  - Key: `dataset_title` (lowercased)
+  - Value: list of `subseries` labels for that study
+- **For each STimage slide → 3-way classification**
+  - Extract study title(s) from the `title` field
+    - Handles multi-paper cells: `"Title 1: Foo. Title 2: Bar."`
+  - **No title match** → `cleaned` (946) — not in HEST, safe to convert
+  - **Title matches + subseries is substring of slide name** → `duplicates` (123) — confirmed in HEST, silently dropped
+  - **Title matches but subseries not found in slide name** → `ambiguous` (80) — same study, different naming convention, needs human review
+- **Outputs**
+  - `cleaned_metadata.csv` — 946 rows, same columns as input
+  - `ambiguous_metadata.csv` — 80 rows + two extra debug columns:
+    - `_matched_hest_title` — which HEST study matched
+    - `_hest_subseries` — HEST's subseries labels for that study
+
+## Cell 3 — Manual review gate
+- Tells user to open `ambiguous_metadata.csv` and delete confirmed duplicates
+- Prompts `[Y/N]`
+  - **Y** — appends surviving ambiguous rows into `cleaned_metadata.csv`
+  - **N** — leaves `cleaned_metadata.csv` unchanged
+- Final `cleaned_metadata.csv` = the definitive list of STimage slides to convert
