@@ -19,9 +19,7 @@
 
 > Where do u wish to store the data? Please input directory: **`/Users/bradzap/Developer`**
 
-> Notice: metadata will be stored under newly created folder: `/Users/bradzap/Developer/data` . This might take a long 
-
-> time. Converting…..
+> Notice: metadata will be stored under newly created folder: `/Users/bradzap/Developer/data` . This might take a long time. Converting…..
 
 ## Target Format
 - **wsis/**: H&E-stained whole slide images in pyramidal Generic TIFF (or pyramidal Generic BigTIFF if >4.1GB)
