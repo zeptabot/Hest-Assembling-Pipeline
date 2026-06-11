@@ -88,11 +88,8 @@ This might take a long time. Converting…
 
 # Clean.py
 
-## Cell 1 — Config
 - Set `DATA_DIR` (one variable to change per machine)
 - Output goes to `DATA_DIR/meta/`
-
-## Cell 2 — Deduplicate STimage against HEST
 - **Inputs**
   - `STimage-1K4M/meta/meta_all_gene.csv` — 1,149 slides
   - `HEST/assets/HEST_v1_1_0.csv` — all HEST samples
@@ -110,8 +107,6 @@ This might take a long time. Converting…
   - `ambiguous_metadata.csv` — 80 rows + two extra debug columns:
     - `_matched_hest_title` — which HEST study matched
     - `_hest_subseries` — HEST's subseries labels for that study
-
-## Cell 3 — Manual review gate
 - Tells user to open `ambiguous_metadata.csv` and delete confirmed duplicates
 - Prompts `[Y/N]`
   - **Y** — appends surviving ambiguous rows into `cleaned_metadata.csv`
