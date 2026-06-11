@@ -1,5 +1,17 @@
 # HEST Sample Assmeble Pipeline.
 
+> **`$`** `Clean.py /Users/bradzap/Developer/GitHub/STimage-1K4M/meta/meta_all_gene.csv`
+> Where do u wish to store cleaned metadata? Please input directory: **`/Users/bradzap/Developer`**
+> Notice: metadata will be stored under newly created folder: `/Users/bradzap/Developer/meta` . Cleaning….
+> Ambiguous slides are in: `/Users/bradzap/Developer/meta/ambiguous_metadata.csv` .
+> Please open it, review each slide, and delete any rows that are confirmed duplicates of HEST samples. Save the file when done.
+> Merge remaining ambiguous rows into cleaned_metadata.csv? [Y/N]: **`N`**
+> Ambiguous rows not added. cleaned_metadata.csv unchanged.
+> 
+> **`$`** `Assemble.py /Users/bradzap/Developer/meta/cleaned_metadata.csv`
+> Where do u wish to store the data? Please input directory: **`/Users/bradzap/Developer`**
+> Notice: metadata will be stored under newly created folder: `/Users/bradzap/Developer/data` . This might take a long time. Converting…..
+
 ## Target Format
 - **wsis/**: H&E-stained whole slide images in pyramidal Generic TIFF (or pyramidal Generic BigTIFF if >4.1GB)
 - **st/**: Spatial transcriptomics expressions in a scanpy `.h5ad` object
@@ -62,110 +74,6 @@
 
 ## Visual Representations
 ![VisualONE](https://raw.githubusercontent.com/zeptabot/Hest-Assembling-Pipeline/main/VisualONE.png)
-![VisualTWO](https://raw.githubusercontent.com/zeptabot/Hest-Assembling-Pipeline/main/VisualTWO.png)
-
-```
-╔══════════════════════════════════════════════════════════════════════════════════╗
-║                         STimage → HEST TRANSFORMATION                          ║
-╚══════════════════════════════════════════════════════════════════════════════════╝
-
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│ INPUTS (STimage)                                                                │
-├──────────────────┬──────────────────────────┬──────────────────────────────────┤
-│ {id}.png         │ {id}_coord.csv           │ {id}_count.csv                   │
-│                  │                          │                                  │
-│ H&E image        │ spot_id | xaxis | yaxis  │ spot_id | GENE1 | GENE2 | ...    │
-│                  │ 10x13   | 1923  | 2622   │ 10x13   |   0   |   1   | ...    │
-│                  │ 10x14   | 1926  | 2844   │ 10x14   |   0   |   0   | ...    │
-└──────────────────┴──────────────────────────┴──────────────────────────────────┘
-         │                      │                           │
-         │           coord.rename(xaxis→X, yaxis→Y)        │
-         │                      │                           │
-         └──────────────────────┴───────────────────────────┘
-                                │
-                                ▼
-                     STReader().read(img_path,
-                       raw_counts_path, spot_coord_path)
-                                │
-                                ▼
-          ┌─────────────────────────────────────────────────┐
-          │  HESTData object (st)                           │
-          │                                                 │
-          │  adata.X  ←  count.csv entire matrix           │
-          │                                                 │
-          │  adata.obs  (one row per spot):                 │
-          │   ├─ pxl_col_in_fullres  ←  coord xaxis        │
-          │   ├─ pxl_row_in_fullres  ←  coord yaxis        │
-          │   ├─ array_row           ←  "10" from 10x13    │
-          │   ├─ array_col           ←  "13" from 10x13    │
-          │   ├─ in_tissue           ←  hardcode True      │
-          │   │                                             │
-          │   │  [sc.pp.calculate_qc_metrics() — AUTO]     │
-          │   ├─ n_counts            ←  row.sum()          │
-          │   ├─ total_counts        ←  row.sum()          │
-          │   ├─ log1p_total_counts  ←  log(total+1)       │
-          │   ├─ n_genes_by_counts   ←  (row>0).sum()      │
-          │   ├─ log1p_n_genes_by_counts ← log(n_genes+1)  │
-          │   ├─ pct_counts_in_top_50_genes                 │
-          │   ├─ pct_counts_in_top_100_genes  ← sort row   │
-          │   ├─ pct_counts_in_top_200_genes    desc, sum  │
-          │   ├─ pct_counts_in_top_500_genes    top N /    │
-          │   ├─ total_counts_mito   ← row[MT-*].sum()     │
-          │   ├─ log1p_total_counts_mito                    │
-          │   └─ pct_counts_mito     ← mito/total×100      │
-          │                                                 │
-          │  adata.var  (one row per gene):                 │
-          │   ├─ mito               ← name.startswith(MT-) │
-          │   │                                             │
-          │   │  [sc.pp.calculate_qc_metrics() — AUTO]     │
-          │   ├─ total_counts       ←  col.sum()           │
-          │   ├─ log1p_total_counts ←  log(total+1)        │
-          │   ├─ mean_counts        ←  col.mean()          │
-          │   ├─ log1p_mean_counts  ←  log(mean+1)         │
-          │   ├─ n_cells_by_counts  ←  (col>0).sum()       │
-          │   └─ pct_dropout_by_counts ← (col==0)/n×100    │
-          │                                                 │
-          │  adata.uns['spatial']['ST']['images']           │
-          │   └─ downscaled_fullres ← png downscaled       │
-          │      [via register_downscale_img() — AUTO]      │
-          │                                                 │
-          │  adata.obsm['spatial']                          │
-          │   └─ [[xaxis, yaxis], ...]  ←  coord CSV       │
-          └──────────────────────┬──────────────────────────┘
-                                 │
-       ┌─────────────────────────┼──────────────────────────────────────┐
-       │                         │                                      │
-       ▼                         ▼                                      ▼
-st.save(                 st.save_spatial_plot()           st.segment_tissue()
-  save_img=True,                 │                        st.save_tissue_seg_pkl()
-  plot_pxl_size=True)            │                                      │
-       │                         │                                      │
-       ▼                         ▼                                      ▼
-┌─────────────────┐   ┌──────────────────┐               ┌─────────────────────┐
-│ wsis/           │   │ spatial_plots/   │               │ tissue_seg/         │
-│  .tif           │   │  spots overlaid  │               │  {id}.geojson       │
-│                 │   │  on downscaled   │               │  {id}_vis.jpg       │
-│ st/             │   │  WSI             │               └─────────────────────┘
-│  .h5ad          │   └──────────────────┘
-│                 │
-│ metadata/       │              ▼
-│  metrics.json   │   st.dump_patches(
-│                 │     target_patch_size=256,
-│ thumbnails/     │     target_pixel_size=0.5)
-│  .jpeg          │              │
-│                 │     ┌────────┴────────┐
-│ pixel_size_vis/ │     ▼                ▼
-│  .png           │  ┌──────────┐  ┌─────────────┐
-└─────────────────┘  │ patches/ │  │ patches_vis/│
-                     │  .h5     │  │  _patch_    │
-                     │          │  │  vis.png    │
-                     └──────────┘  └─────────────┘
-
-┌──────────────────────────────────────────────┐
-│ N/A for STimage (Xenium only — skip)         │
-│  transcripts/   cellvit_seg/   xenium_seg/   │
-└──────────────────────────────────────────────┘
-```
 
 # Clean.py
 
