@@ -1,25 +1,27 @@
 # HEST Sample Assmeble Pipeline.
 
-> **`$`** `Clean.py /Users/bradzap/Developer/GitHub/STimage-1K4M/meta/meta_all_gene.csv`
+``` bash
+(base) bradzap@Brads-MacBook-Air ~ % conda activate hest
+(hest) bradzap@Brads-MacBook-Air ~ % "/Users/bradzap/Developer/GitHub/Hest Assembling Pipeline/Clean.py" /Users/bradzap/Developer/GitHub/STimage-1K4M/meta/meta_all_gene.csv
+Where do you wish to store cleaned metadata? Please input directory: /Users/bradzap/Developer
+Notice: metadata will be stored under newly created folder: /Users/bradzap/Developer/meta
+Cleaning…
+Total STimage slides : 1149
+Confirmed duplicates : 123  (skipped)
+Ambiguous            : 80   → ambiguous_metadata.csv
+Safe to convert      : 946  → cleaned_metadata.csv
 
-> Where do u wish to store cleaned metadata? Please input directory: **`/Users/bradzap/Developer`**
+Ambiguous slides are in: /Users/bradzap/Developer/meta/ambiguous_metadata.csv
+Please open it, review each slide, and delete any rows that are
+confirmed duplicates of HEST samples. Save the file when done.
 
-> Notice: metadata will be stored under newly created folder: `/Users/bradzap/Developer/meta` . Cleaning….
-
-> Ambiguous slides are in: `/Users/bradzap/Developer/meta/ambiguous_metadata.csv` .
-
-> Please open it, review each slide, and delete any rows that are confirmed duplicates of HEST samples. Save the file when done.
-
-> Merge remaining ambiguous rows into cleaned_metadata.csv? [Y/N]: **`N`**
-
-> Ambiguous rows not added. cleaned_metadata.csv unchanged.
-
-> 
-> **`$`** `Assemble.py /Users/bradzap/Developer/meta/cleaned_metadata.csv`
-
-> Where do u wish to store the data? Please input directory: **`/Users/bradzap/Developer`**
-
-> Notice: metadata will be stored under newly created folder: `/Users/bradzap/Developer/data` . This might take a long time. Converting…..
+Merge remaining ambiguous rows into cleaned_metadata.csv? [Y/N]: N
+Ambiguous rows not added. cleaned_metadata.csv unchanged.
+(hest) bradzap@Brads-MacBook-Air ~ % python3 "/Users/bradzap/Developer/GitHub/Hest Assembling Pipeline/Assemble.py" /Users/bradzap/Developer/meta/cleaned_metadata.csv
+Where do you wish to store the data? Please input directory: /Users/bradzap/Developer
+Notice: data will be stored under newly created folder: /Users/bradzap/Developer/data
+This might take a long time. Converting…
+```
 
 ## Target Format
 - **wsis/**: H&E-stained whole slide images in pyramidal Generic TIFF (or pyramidal Generic BigTIFF if >4.1GB)
