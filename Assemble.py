@@ -36,6 +36,16 @@ SPOT_PARAMS = {
     "VisiumHD": {"spot_diameter": 2.,   "inter_spot_dist": 2.},
 }
 
+# Each entry: (target_pixel_size µm/px, output name)
+# 256px patch at 0.5 µm/px = 128 µm footprint (20x equivalent)
+# 256px patch at 1.0 µm/px = 256 µm footprint (10x equivalent)
+# 256px patch at 2.0 µm/px = 512 µm footprint  (5x equivalent)
+PATCH_SCALES = [
+    (0.5, "patches_20x"),
+    (1.0, "patches_10x"),
+    (2.0, "patches_5x"),
+]
+
 # ── Metadata helpers ────────────────────────────────────────────────────────
 def _first_title(raw):
     m = re.findall(r"Title \d+: (.+?)(?= Title \d+:|$)", raw)
@@ -65,14 +75,14 @@ def download_slide(slide_name, technology):
         if os.path.exists(dest_path):
             continue
         try:
-            with tempfile.TemporaryDirectory() as tmp:
+            with tempfile.TemporaryDirectory(dir=DATA_DIR) as tmp:
                 src = hf_hub_download(
                     repo_id="jiawennnn/STimage-1K4M",
                     filename=f"{technology}/{file_type}/{filename}",
                     repo_type="dataset",
                     local_dir=tmp,
                 )
-                shutil.copy(src, dest_path)
+                shutil.move(src, dest_path)
         except Exception as e:
             print(f"    x {filename}: {e}")
             return None
@@ -88,7 +98,11 @@ def convert_slide(slide_name, stimage_dir, hest_dir, technology, row):
     common       = counts.index.intersection(coord.index)
     counts, coord = counts.loc[common], coord.loc[common]
 
-    short_ids    = [re.search(r"(\d+x\d+)$", idx).group(1) for idx in counts.index]
+    if technology == "ST":
+        short_ids = [re.search(r"(\d+x\d+)$", idx).group(1) for idx in counts.index]
+    else:
+        prefix    = slide_name + "_"
+        short_ids = [idx[len(prefix):] if idx.startswith(prefix) else idx for idx in counts.index]
     counts.index = coord.index = short_ids
 
     adata = sc.AnnData(counts)
@@ -98,8 +112,14 @@ def convert_slide(slide_name, stimage_dir, hest_dir, technology, row):
         adata.obsm["spatial"], index=adata.obs_names,
         columns=["pxl_col_in_fullres", "pxl_row_in_fullres"]
     )
-    my_df["array_row"] = [round(float(i.split("x")[0])) for i in my_df.index]
-    my_df["array_col"] = [round(float(i.split("x")[1])) for i in my_df.index]
+    if technology == "ST":
+        my_df["array_row"] = [round(float(i.split("x")[0])) for i in my_df.index]
+        my_df["array_col"] = [round(float(i.split("x")[1])) for i in my_df.index]
+    else:
+        _, y_inv = np.unique(my_df["pxl_row_in_fullres"].round().astype(int).values, return_inverse=True)
+        _, x_inv = np.unique(my_df["pxl_col_in_fullres"].round().astype(int).values, return_inverse=True)
+        my_df["array_row"] = y_inv
+        my_df["array_col"] = x_inv
 
     adata.obs["array_row"]          = my_df["array_row"].values
     adata.obs["array_col"]          = my_df["array_col"].values
@@ -107,19 +127,42 @@ def convert_slide(slide_name, stimage_dir, hest_dir, technology, row):
     adata.obs["pxl_row_in_fullres"] = my_df["pxl_row_in_fullres"].values
     adata.obs["in_tissue"]          = True
 
-    pixel_size, spot_estimate_dist = find_pixel_size_from_spot_coords(
-        my_df, inter_spot_dist=SPOT_PARAMS[technology]["inter_spot_dist"],
-        packing=SpotPacking.GRID_PACKING
-    )
+    if technology == "ST":
+        pixel_size, spot_estimate_dist = find_pixel_size_from_spot_coords(
+            my_df, inter_spot_dist=SPOT_PARAMS[technology]["inter_spot_dist"],
+            packing=SpotPacking.GRID_PACKING
+        )
+    else:
+        # Use spot-radius column for accurate pixel size; rank array positions are
+        # not a valid Visium grid so find_pixel_size_from_spot_coords gives wrong results
+        pixel_size = SPOT_PARAMS[technology]["spot_diameter"] / 2.0 / coord["r"].median()
+        spot_estimate_dist = SPOT_PARAMS[technology]["inter_spot_dist"] / pixel_size
+
+    # wsi_factory raises ValueError for mpp >= 2.4; STimage Visium PNGs are
+    # ~2000px thumbnails (~3-9 um/px). Upscale to 1.0 um/px so HEST accepts them.
+    if pixel_size >= 2.0:
+        scale = pixel_size / 1.0
+        h, w = img_array.shape[:2]
+        img_array = np.array(Image.fromarray(img_array).resize(
+            (round(w * scale), round(h * scale)), Image.LANCZOS
+        ))
+        my_df["pxl_col_in_fullres"] *= scale
+        my_df["pxl_row_in_fullres"] *= scale
+        adata.obs["pxl_col_in_fullres"] = my_df["pxl_col_in_fullres"].values
+        adata.obs["pxl_row_in_fullres"] = my_df["pxl_row_in_fullres"].values
+        adata.obsm["spatial"]           = my_df[["pxl_col_in_fullres", "pxl_row_in_fullres"]].values
+        pixel_size       /= scale
+        spot_estimate_dist *= scale
 
     wsi = wsi_factory(img_array, mpp=pixel_size)
     register_downscale_img(adata, wsi, pixel_size,
                            spot_size=SPOT_PARAMS[technology]["spot_diameter"])
 
-    adata.obs.index = [
-        i.split("x")[0].zfill(3) + "x" + i.split("x")[1].zfill(3)
-        for i in adata.obs.index
-    ]
+    if technology == "ST":
+        adata.obs.index = [
+            i.split("x")[0].zfill(3) + "x" + i.split("x")[1].zfill(3)
+            for i in adata.obs.index
+        ]
 
     adata.var["mito"] = adata.var_names.str.startswith("MT-")
     sc.pp.calculate_qc_metrics(adata, qc_vars=["mito"], inplace=True)
@@ -167,9 +210,10 @@ def convert_slide(slide_name, stimage_dir, hest_dir, technology, row):
     st.segment_tissue(method="otsu")
     st.save_tissue_contours(hest_dir, "tissue_seg")
     st.save_tissue_vis(hest_dir, "tissue_seg")
-    st.dump_patches(patch_save_dir=hest_dir, name="patches",
-                    target_patch_size=256, target_pixel_size=0.5,
-                    dump_visualization=True)
+    for target_pixel_size, name in PATCH_SCALES:
+        st.dump_patches(patch_save_dir=hest_dir, name=name,
+                        target_patch_size=256, target_pixel_size=target_pixel_size,
+                        dump_visualization=True)
 
 # ── Main loop ──────────────────────────────────────────────────────────────
 with open(CLEANED_META, newline="") as f:
