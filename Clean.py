@@ -42,9 +42,13 @@ else:
         titles = re.findall(r"Title \d+: (.+?)(?= Title \d+:|$)", raw)
         return [t.strip() for t in titles] if titles else [raw.strip()]
 
-    cleaned, ambiguous, duplicates = [], [], []
+    cleaned, ambiguous, duplicates, non_cancer = [], [], [], []
 
     for row in stimage:
+        if str(row.get("involve_cancer", "")).strip().lower() not in ("true", "1", "yes"):
+            non_cancer.append(row)
+            continue
+
         slide  = row["slide"]
         titles = extract_titles(row["title"])
 
@@ -80,6 +84,7 @@ else:
         w.writeheader(); w.writerows(ambiguous)
 
     print(f"Total STimage slides : {len(stimage)}")
+    print(f"Non-cancer           : {len(non_cancer)}  (skipped)")
     print(f"Confirmed duplicates : {len(duplicates)}  (skipped)")
     print(f"Ambiguous            : {len(ambiguous)}   → ambiguous_metadata.csv")
     print(f"Safe to convert      : {len(cleaned)}  → cleaned_metadata.csv")

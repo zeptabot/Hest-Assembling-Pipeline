@@ -2,6 +2,7 @@
 import csv, os, re, shutil, sys, tempfile
 
 import numpy as np
+import tifffile
 import pandas as pd
 import scanpy as sc
 from huggingface_hub import hf_hub_download
@@ -57,6 +58,23 @@ def _norm_species(s):
 def _first_study_link(raw):
     pmids = [p.strip() for p in re.split(r"[\n,;]+", raw) if p.strip().isdigit()]
     return f"https://pubmed.ncbi.nlm.nih.gov/{pmids[0]}/" if pmids else None
+
+# ── Helpers ────────────────────────────────────────────────────────────────
+def _fix_tif_mpp(tif_path, pixel_size_um):
+    """Fix HEST's tiff_save unit bug: pyvips writes mpp 10× too small.
+
+    HEST computes xres as px/cm but pyvips interprets it as px/mm, then
+    multiplies ×10 when encoding resunit=CM → stored mpp is 0.1× the truth.
+    This corrects all IFD levels in-place without re-encoding any pixel data.
+    """
+    px_per_cm = 10000.0 / pixel_size_um          # correct value: px/cm
+    rational = (round(px_per_cm * 1000), 1000)   # rational: num/den
+    with open(tif_path, "r+b") as f:
+        with tifffile.TiffFile(f) as tif:
+            for page in tif.pages:
+                for tag_name in ("XResolution", "YResolution"):
+                    if tag_name in page.tags:
+                        page.tags[tag_name].overwrite(rational)
 
 # ── Download ───────────────────────────────────────────────────────────────
 def download_slide(slide_name, technology):
@@ -206,6 +224,7 @@ def convert_slide(slide_name, stimage_dir, hest_dir, technology, row):
 
     st = STHESTData(adata, img_array, pixel_size, meta)
     st.save(path=hest_dir, save_img=True, pyramidal=True, bigtiff=False, plot_pxl_size=True)
+    _fix_tif_mpp(os.path.join(hest_dir, "aligned_fullres_HE.tif"), pixel_size)
     st.save_spatial_plot(save_path=hest_dir)
     st.segment_tissue(method="otsu")
     st.save_tissue_contours(hest_dir, "tissue_seg")
