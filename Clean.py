@@ -25,11 +25,25 @@ EBI_RE        = re.compile(r'^E-[A-Z]+-\d+$', re.IGNORECASE)
 is_zenodo = ARG.startswith(ZENODO_PREFIX)
 is_geo    = bool(GEO_RE.match(ARG))
 is_ebi    = bool(EBI_RE.match(ARG))
-is_remote = is_zenodo or is_geo or is_ebi
+is_csv_url = (ARG.startswith("http://") or ARG.startswith("https://")) and ARG.endswith(".csv")
+is_remote = is_zenodo or is_geo or is_ebi or is_csv_url
 
 if not is_remote and not os.path.exists(ARG):
     print(f"ERROR: path does not exist: {ARG}")
     sys.exit(1)
+
+# Download remote CSV to a temp file so the STimage path below can open it
+if is_csv_url:
+    try:
+        import requests as _req
+    except ImportError:
+        print("ERROR: pip install requests"); sys.exit(1)
+    print(f"Downloading {ARG} …")
+    _r = _req.get(ARG, timeout=120); _r.raise_for_status()
+    import tempfile as _tmp
+    _tf = _tmp.NamedTemporaryFile(mode="wb", suffix=".csv", delete=False)
+    _tf.write(_r.content); _tf.close()
+    ARG = _tf.name
 
 output_base = input("Where do you wish to store cleaned metadata? Please input directory: ").strip()
 OUTPUT_DIR  = os.path.join(output_base, "meta")
@@ -286,6 +300,7 @@ if os.path.isdir(ARG):
 
 # ── STimage mode (CSV file) ────────────────────────────────────────────────
 STIMAGE_META = ARG
+_stimage_tmp = ARG if is_csv_url else None
 
 if os.path.exists(CLEANED_PATH) and os.path.exists(AMBIGUOUS_PATH):
     print(f"\nExisting output detected — skipping cleaning step.")
@@ -380,3 +395,6 @@ if answer == "Y":
     print(f"Appended {len(amb_rows)} rows. Total safe-to-convert slides: {total}")
 else:
     print("Ambiguous rows not added. cleaned_metadata.csv unchanged.")
+
+if _stimage_tmp and os.path.exists(_stimage_tmp):
+    os.unlink(_stimage_tmp)
