@@ -479,40 +479,32 @@ def _download_tls_zip(record_url, cache_dir):
     raise RuntimeError("Failed to download TLS zip")
 
 def _load_tls_sample(sample_name, zip_path):
-    with zipfile.ZipFile(zip_path, "r") as zf:
-        with tempfile.NamedTemporaryFile(suffix=".tif", delete=False) as tmp:
-            tmp.write(zf.read(f"tif_slides/{sample_name}.tif"))
-            tif_tmp = tmp.name
-        with tempfile.NamedTemporaryFile(suffix=".h5ad", delete=False) as tmp:
-            tmp.write(zf.read(f"h5ad_preprocessed/{sample_name}.h5ad"))
-            h5ad_tmp = tmp.name
+    """Extract Space Ranger output + TIF for one TLS sample, call _load_spaceranger."""
+    sr_prefix  = f"TLS_VISIUM_USZ/10x_Visium/{sample_name}/"
+    tif_entry  = f"TLS_VISIUM_USZ/tif_slides/{sample_name}.tif"
+
+    tmp_dir = tempfile.mkdtemp()
+    tif_tmp = None
     try:
-        img_array = np.array(Image.open(tif_tmp).convert("RGB"))
-        adata     = sc.read(h5ad_tmp)
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            for member in zf.infolist():
+                name = member.filename
+                if name.startswith(sr_prefix) and not name.endswith("/"):
+                    rel  = name[len(sr_prefix):]
+                    dest = os.path.join(tmp_dir, rel)
+                    os.makedirs(os.path.dirname(dest), exist_ok=True)
+                    with zf.open(member) as src, open(dest, "wb") as dst:
+                        dst.write(src.read())
+            with tempfile.NamedTemporaryFile(suffix=".tif", delete=False) as tmp:
+                tmp.write(zf.read(tif_entry))
+                tif_tmp = tmp.name
+
+        return _load_spaceranger(tmp_dir, img_path=tif_tmp)
     finally:
-        for p in (tif_tmp, h5ad_tmp):
-            try: os.unlink(p)
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        if tif_tmp:
+            try: os.unlink(tif_tmp)
             except: pass
-
-    if hasattr(adata, "raw") and adata.raw is not None:
-        X = adata.raw.X; var_names = adata.raw.var_names
-    elif "counts" in adata.layers:
-        X = adata.layers["counts"]; var_names = adata.var_names
-    else:
-        X = adata.X; var_names = adata.var_names
-    if hasattr(X, "toarray"):
-        X = X.toarray()
-    counts = pd.DataFrame(X, index=adata.obs_names, columns=var_names)
-
-    # Squidpy/Visium convention: spatial[:, 0]=x (col), spatial[:, 1]=y (row)
-    sp = adata.obsm["spatial"]
-    coord = pd.DataFrame({
-        "xaxis": sp[:, 0].astype(float),
-        "yaxis": sp[:, 1].astype(float),
-        # no 'r' — convert_slide falls back to find_pixel_size_from_spot_coords
-    }, index=adata.obs_names)
-
-    return img_array, counts, coord
 
 def _download_ebi_sample(sample_name, ebi_acc, cache_dir):
     """Download {sample}-filtered_feature_bc_matrix.h5 and {sample}-spatial.tar
